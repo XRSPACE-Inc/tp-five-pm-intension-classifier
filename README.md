@@ -24,4 +24,4 @@ The pre-trained model can be accessed from the following link:
 
 1. [基於BERT與混淆發音對影片字幕轉換之專業詞校正](https://ndltd.ncl.edu.tw/cgi-bin/gs32/gsweb.cgi/login?o=dnclcdr&s=id=%22109CCU00392012%22.&searchmode=basic)
 
-2. [基于BERT的ASR纠错]([https://zhuanlan.zhihu.com/p/451027704](https://blog.csdn.net/qq_27590277/article/details/107398826))
+2. [基於BERT的ASR糾錯](https://zhuanlan.zhihu.com/p/451027704](https://blog.csdn.net/qq_27590277/article/details/107398826)
