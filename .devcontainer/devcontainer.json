@@ -1,0 +1,28 @@
+{
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    "name": "typo correction",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "mikoz.isort-formatter",
+                "ms-python.black-formatter",
+                "ms-python.python",
+                "ms-python.debugpy",
+                "ms-azuretools.vscode-docker",
+                "mhutchie.git-graph",
+                "charliermarsh.ruff"
+            ]
+        }
+    },
+    "runArgs": [
+        "--gpus","all",
+        // "-v","/D/music_data_to_use:/data_to_use",
+        "--shm-size","8G"
+        // "--name","johnny_docker",
+        // "--rm",
+        // "-idt"
+        // "-p","9487:22"
+    ]
+}
