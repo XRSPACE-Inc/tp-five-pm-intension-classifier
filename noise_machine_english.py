@@ -65,7 +65,7 @@ def process_text(input_file, output_dir, typo_probability, max_lines):
         os.makedirs(output_dir)
 
     output_file = generate_output_filename(output_dir)
-    
+
     while count_lines(output_file) < max_lines:
         with open(input_file, 'r', encoding='utf-8') as infile:
             lines = [line.strip() for line in infile if line.strip()]
@@ -100,7 +100,7 @@ def process_text(input_file, output_dir, typo_probability, max_lines):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="產生包含拼寫錯誤的訓練資料")
     parser.add_argument("--input", type=str, required=True, help="輸入檔案名稱")
-    parser.add_argument("--output", type=str, default="test/output_test.txt", help="輸出檔案名稱")
+    parser.add_argument("--output", type=str, default="training_data", help="輸出檔案名稱")
     parser.add_argument("--typo_probability", type=float, default=0.15, help="拼寫錯誤的機率 (預設為 0.15)")
     parser.add_argument("--max_lines", type=int, default=1000, help="輸出檔案的最大行數 (預設為 1000)")
 

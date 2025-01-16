@@ -1,4 +1,5 @@
 import torch
+import re
 import time
 import argparse
 from multi_version_training import BertForSpellingCorrection
@@ -41,6 +42,8 @@ def correct_spelling(model, tokenizer, device, source_text):
 
     predicted_ids = torch.argmax(logits, dim=-1).squeeze().tolist()
     predicted_text = tokenizer.decode(predicted_ids, skip_special_tokens=True)
+
+    predicted_text = re.sub(r'\s*-\s*', '-', predicted_text)
 
     # Remove spaces
     # predicted_text = predicted_text.replace(' ', '')
