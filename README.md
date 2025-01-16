@@ -18,7 +18,7 @@ sentences.
 ## Model Path
 
 The pre-trained model can be accessed from the following link:
-[Model Path](https://huggingface.co/google-bert/bert-base-multilingual-uncased/tree/main)
+[Model Path](https://huggingface.co/google-bert/bert-base-multilingual-cased/tree/main)
 
 ## References
 

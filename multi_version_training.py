@@ -71,8 +71,8 @@ class BertForSpellingCorrection(nn.Module):
 def _training_script(directory, num_epochs, lr, save_interval):
     torch.cuda.empty_cache()
 
-    tokenizer = BertTokenizer.from_pretrained('bert-base-multilingual-uncased')
-    bert_model = BertModel.from_pretrained("bert-base-multilingual-uncased")
+    tokenizer = BertTokenizer.from_pretrained('bert-base-multilingual-cased')
+    bert_model = BertModel.from_pretrained("bert-base-multilingual-cased")
 
     train_data_path = get_txt_files_in_directory(directory)
     print(f"train_data_path={train_data_path}")

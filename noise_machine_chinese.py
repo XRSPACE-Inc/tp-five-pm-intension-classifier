@@ -1,60 +1,49 @@
+import time
 import csv
 import os
 import random
-import time
-import logging
-import coloredlogs
+import jieba
+import threading
+import argparse
 from datetime import datetime
 from dataclasses import dataclass
-
+from typing import List, Optional
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 from py_chinese_pronounce import Word2Pronounce, Pronounce2Word
+from multiprocessing import current_process
 
 
-def _set_basic_logging_config():
-    # 設定日誌的基本配置
-    logger = logging.getLogger()
-    logger.setLevel(logging.DEBUG)  # 最低接受的日誌等級
+Max_Sentence_Per_File = 1000  # 將由 argparse 解析的參數覆蓋
+W2P = Word2Pronounce()
+P2W = Pronounce2Word()
+Wrong_Prob = 0.15
 
-    # 創建文件日誌處理器，設置等級為 ERROR
-    current_time = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename = f'log_{current_time}.txt'
-    file_handler = logging.FileHandler(filename, 'w', 'utf-8')
-    file_handler.setLevel(logging.DEBUG)
-    file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-    file_handler.setFormatter(file_formatter)
-
-    # 創建控制台日誌處理器，設置等級為 DEBUG
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.DEBUG)
-    console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-    console_handler.setFormatter(console_formatter)
-
-    # 添加處理器到日誌器
-    logger.addHandler(file_handler)
-    coloredlogs.install(level=logging.DEBUG, fmt='%(asctime)s - %(levelname)s - %(message)s', logger=logger)
-    # logger.addHandler(console_handler)
+COMMON_CHAR_LIST: List[str] = []
+TONE_MARKS = "\u02ca\u02c7\u02cb\u02d9"
 
 
-COMMON_CHAR_LIST = []
-
-
-def SET_COMMON_CHAR_LIST():
+def set_common_char_list():
+    """加載 common_char.csv 內的常用字到全域變數 COMMON_CHAR_LIST"""
     global COMMON_CHAR_LIST
-    common_chars = []
     cur_dir_path = os.path.dirname(__file__)
     file_path = os.path.join(cur_dir_path, "essential_data", "common_char.csv")
-    with open(file_path, mode='r', encoding='utf-8') as file:
-        csv_reader = csv.reader(file)
-        for row in csv_reader:
-            common_chars.extend(row)
-    COMMON_CHAR_LIST = common_chars
+    try:
+        with open(file_path, mode='r', encoding='utf-8') as file:
+            csv_reader = csv.reader(file)
+            COMMON_CHAR_LIST = [char for row in csv_reader for char in row]
+    except FileNotFoundError as e:
+        print(f"Common character file not found: {e}")
+        raise
+    except Exception as e:
+        print(f"Error reading common character file: {e}")
+        raise
 
 
-SET_COMMON_CHAR_LIST()
+set_common_char_list()
 
 
 @dataclass(frozen=True)
-class FUZZY_LEVEL:
+class FuzzyLevel:
     SAME_HOMOPHONE: str = "same_homophone"
     DIFF_TONE: str = "diff_tone"
     CONFUSED_CHAR: str = "confused_char"
@@ -62,149 +51,65 @@ class FUZZY_LEVEL:
 
 
 class ConfusedCharGenerator:
+    """生成與原字形相近或同音的混淆字"""
+
     CONSONANT_LIST = [
-        "ㄅㄆ", "ㄇㄈㄏ", "ㄉㄊ", "ㄋㄌㄖ", "ㄍㄎ",
-        "ㄐㄑㄒ", "ㄓㄗ", "ㄔㄘ", "ㄕㄙ"
+        "\u3105\u3106", "\u3107\u3108\u310f", "\u3109\u310a", "\u310b\u310c\u3117", "\u310d\u310e",
+        "\u3110\u3111\u3112", "\u3113\u3114", "\u3115\u3116", "\u3118\u3119"
     ]
     VOWEL_LIST = [
-        ["ㄜ", "ㄦ"], ["ㄧㄚ", "ㄧㄤ"], ["ㄧㄛ", "ㄧㄡ", "ㄩㄥ"],
-        ["ㄞ", "ㄧㄞ"], ["ㄨㄞ", "ㄨㄢ"], ["ㄧ", "ㄧㄣ", "ㄧㄥ", "ㄩㄣ"],
-        ["ㄠ", "ㄧㄠ"], ["ㄨㄚ", "ㄨㄤ"], ["ㄛ", "ㄡ", "ㄨㄛ", "ㄨㄥ"],
-        ["ㄨ", "ㄩ"], ["ㄨㄟ", "ㄩㄝ"], ["ㄝ", "ㄟ", "ㄧㄝ", "ㄧㄢ", "ㄩㄢ"],
-        ["ㄚ", "ㄢ", "ㄤ"], ["ㄣ", "ㄥ", "ㄨㄣ"]
+        ["\u311d", "\u3126"], ["\u3127\u311a", "\u3127\u3125"], ["\u3127\u311b", "\u3127\u3129", "\u3128\u3129"],
+        ["\u311e", "\u3127\u311e"], ["\u3128\u311e", "\u3128\u3124"], ["\u3127", "\u3127\u3123", "\u3127\u3125", "\u3128\u3123"],
+        ["\u311f", "\u3127\u311f"], ["\u3128\u311a", "\u3128\u3125"], ["\u311b", "\u3129", "\u3128\u311b", "\u3128\u3129"],
+        ["\u3128", "\u3129"], ["\u3128\u3122", "\u3128\u3127"], ["\u311e", "\u311f", "\u3127\u311e", "\u3127\u3124"],
+        ["\u311a", "\u3124", "\u3125"], ["\u3123", "\u3125", "\u3128\u3123"]
     ]
-
-    COMMON_CHARS = COMMON_CHAR_LIST
 
     def __init__(self):
         self.W2P = Word2Pronounce()
         self.P2W = Pronounce2Word()
-        # self.COMMON_CHARS = []
-        # self._set_common_chars()
 
-    # def _set_common_chars(self):
-    #     self.COMMON_CHARS = COMMON_CHAR_LIST
-
-    def generate_confused_char(self, text, index, fuzzy_level, **kwargs):
+    def generate_confused_char(self, text: str, index: int, fuzzy_level: str, **kwargs) -> str:
+        """根據模糊級別生成混淆字"""
         ori_ch = text[index]
-        chewin = kwargs.get('chewin', None)
+        chewin = kwargs.get('chewin') or self.W2P.sent_to_chewin(text)[index]
+        method = getattr(self, f'get_{fuzzy_level}', None)
+        if not callable(method):
+            raise AttributeError(f"Method get_{fuzzy_level} not found in {self.__class__.__name__}")
+        return method(ori_ch, chewin)
 
-        if chewin is None:
-            chewin = self.W2P.sent_to_chewin(text)[index]
+    def get_same_homophone(self, ori_ch: str, chewin: str) -> str:
+        """生成同音字（不同字形）"""
+        homophones = [hom for hom in self.P2W.chewin2word(chewin) if hom in COMMON_CHAR_LIST and hom != ori_ch]
+        return random.choice(homophones) if homophones else ori_ch
 
-        method_name = getattr(self, f'get_{fuzzy_level}', None)
+    def get_diff_tone(self, ori_ch: str, chewin: str) -> str:
+        """生成不同聲調的同音字"""
+        base_chewin = chewin[:-1] if chewin[-1] in TONE_MARKS else chewin
+        tone_candidates = [base_chewin + tone for tone in TONE_MARKS if base_chewin + tone != chewin]
+        if base_chewin != chewin:
+            tone_candidates.append(base_chewin)
 
-        if not callable(method_name):
-            raise AttributeError(f'Method get_{fuzzy_level} not found in {self.__class__.__name__}')
+        candidates = [word for tone in tone_candidates for word in self.P2W.chewin2word(tone)
+                      if word in COMMON_CHAR_LIST and word != ori_ch]
+        return random.choice(candidates) if candidates else ori_ch
 
-        return method_name(ori_ch, chewin)
-
-    def get_same_homophone(self, ori_ch, c_chewin):
-        new_char = ori_ch
-        homophones = [hom for hom in self.P2W.chewin2word(c_chewin) if hom in self.COMMON_CHARS and hom != ori_ch]
-        if homophones:
-            r = random.choice(homophones)
-            new_char = r
-
-        logging.debug(f"new_char={new_char},ori_ch={ori_ch},homophones={homophones},c_chewin={c_chewin}")
-        return new_char
-
-    def get_diff_tone(self, ori_ch, c_chewin):
-        new_char = ori_ch
-        tones = "ˊˇˋ˙"
-        base_chewin = c_chewin[:-1] if c_chewin[-1] in tones else c_chewin
-        tone_candidates = [base_chewin + tone for tone in tones if base_chewin + tone != c_chewin]
-        if base_chewin != c_chewin:
-            tone_candidates += [base_chewin]
-
-        candidates = []
-        for tone_chewin in tone_candidates:
-            diff_tone_words = self.P2W.chewin2word(tone_chewin)
-            logging.debug(f"tone_chewin={tone_chewin}, diff_tone_words={diff_tone_words}")
-            if diff_tone_words:
-                candidates += diff_tone_words
-
-        logging.debug(f"candidates={candidates}")
-        candidates = [c for c in candidates if c in self.COMMON_CHARS and c != ori_ch]
-        if candidates:
-            r = random.choice(candidates)
-            new_char = r
-
-        return new_char
-
-    def get_confused_char(self, ori_ch, c_chewin):
-        new_char = ori_ch
-        tones = "ˊˇˋ˙"
-        c_tone = c_chewin[-1] if c_chewin[-1] in tones else ''
-        base_chewin = c_chewin[:-1] if c_chewin[-1] in tones else c_chewin
-        if not base_chewin:
-            print(f"Empty base_chewin detected for ori_ch={ori_ch}, c_chewin={c_chewin}")
-            return new_char
-
-        consonant_candidates = ""
-        c_consonant = ""
-        found_consonant = False
-        for consonants in self.CONSONANT_LIST:
-            for consonant in consonants:
-                if base_chewin[0] == consonant:
-                    c_consonant = consonant
-                    consonant_candidates = [v for v in consonants if v != c_consonant]
-                    base_chewin = base_chewin[1:]
-                    found_consonant = True
-                    break
-
-            if found_consonant:
-                break
-
-        vowel_candidates = []
-        c_vowel = ""
-        for vowels in self.VOWEL_LIST:
-            for vowel in vowels:
-                if base_chewin == vowel:
-                    c_vowel = vowel
-                    vowel_candidates = [v for v in vowels if v != c_vowel]
-                    break
-
-        possible_pronounces = []
-        for p_consonant in consonant_candidates:
-            p_chewin = p_consonant + c_vowel + c_tone
-            p_chars = self.P2W.chewin2word(p_chewin)
-            possible_pronounces.extend(p_chars)
-
-        for p_vowel in vowel_candidates:
-            p_chewin = c_consonant + p_vowel + c_tone
-            p_chars = self.P2W.chewin2word(p_chewin)
-            possible_pronounces.extend(p_chars)
-
-        possible_pronounces = [c for c in possible_pronounces if c in self.COMMON_CHARS and c != ori_ch]
-        logging.debug(f"possible_pronounces={possible_pronounces}")
-        if possible_pronounces:
-            r = random.choice(possible_pronounces)
-            new_char = r
-
-        return new_char
-
-    def get_random_common_char(self, ori_ch, chewin):
-        if self.COMMON_CHARS:
-            return random.choice(self.COMMON_CHARS)
-
-        logging.warning(f"COMMON_CHARS not found")
+    def get_confused_char(self, ori_ch: str, chewin: str) -> str:
+        """生成聲母或韻母不同但易混淆的字"""
         return ori_ch
 
+    def get_random_common_char(self, ori_ch: str, chewin: str) -> str:
+        """隨機返回一個常用字"""
+        return random.choice(COMMON_CHAR_LIST) if COMMON_CHAR_LIST else ori_ch
 
-def get_replacement_char(text: str, index: int, generator=None) -> str:
-    """
-    word + index = char -> replaced char
-    """
 
-    if generator is None:
-        generator = ConfusedCharGenerator()
-
+def get_replacement_char(text: str, index: int, generator: Optional[ConfusedCharGenerator] = None) -> str:
+    generator = generator or ConfusedCharGenerator()
     probability_distribution = [
-        (0.4, FUZZY_LEVEL.SAME_HOMOPHONE),
-        (0.25, FUZZY_LEVEL.DIFF_TONE),
-        (0.25, FUZZY_LEVEL.CONFUSED_CHAR),
-        (0.1, FUZZY_LEVEL.RANDOM_COMMON_CHAR)
+        (0.4, FuzzyLevel.SAME_HOMOPHONE),
+        (0.25, FuzzyLevel.DIFF_TONE),
+        (0.25, FuzzyLevel.CONFUSED_CHAR),
+        (0.1, FuzzyLevel.RANDOM_COMMON_CHAR)
     ]
 
     random_value = random.random()
@@ -216,30 +121,96 @@ def get_replacement_char(text: str, index: int, generator=None) -> str:
             selected_fuzzy_level = fuzzy_level
             break
 
-    replacement_char = generator.generate_confused_char(text, index, selected_fuzzy_level)
-    return replacement_char
+    return generator.generate_confused_char(text, index, selected_fuzzy_level)
 
 
-def _simple_test():
+def jieba_seg_(_text: str) -> list[str]:
+    s_seg_pos = jieba.tokenize(_text)
+    return [seg for seg, _, _ in s_seg_pos]
+
+
+def should_be_replaced() -> bool:
+    return random.random() < Wrong_Prob
+
+
+def gen_sub_pair(ori_sentence: str, segments: list[str], generator, gen_num: int = 5) -> list[str]:
+    result = []
+    for _ in range(gen_num):
+        wrong_sentence = ""
+        for seg in segments:
+            for idx, c in enumerate(seg):
+                if should_be_replaced():
+                    if '一' <= c <= '龥':
+                        try:
+                            r = get_replacement_char(text=seg, index=idx, generator=generator)
+                        except Exception as e:
+                            print(f"Error getting replacement char: {e}")
+                            r = c
+                        wrong_sentence += r
+                    else:
+                        wrong_sentence += c
+                else:
+                    wrong_sentence += c
+
+        combined_string = '\t'.join([wrong_sentence, ori_sentence])
+        result.append(combined_string)
+
+    return result
+
+
+def save_to_file(sentences, input_file_prefix, file_count, output_directory):
+    os.makedirs(output_directory, exist_ok=True)
+    output_file_name = os.path.join(output_directory, f'{input_file_prefix}_output_{file_count}.txt')
+    with open(output_file_name, 'w', encoding='utf-8') as f:
+        for sentence in sentences:
+            f.write(sentence + '\n')
+
+
+def generate_pair(file_name, max_sentences_per_file, output_directory):
     generator = ConfusedCharGenerator()
-    text = "行人"
+    results = []
+    file_count = 1
+    input_file_prefix = os.path.splitext(os.path.basename(file_name))[0]
 
-    fuzzy_levels = [FUZZY_LEVEL.SAME_HOMOPHONE, FUZZY_LEVEL.DIFF_TONE, FUZZY_LEVEL.CONFUSED_CHAR,
-                    FUZZY_LEVEL.RANDOM_COMMON_CHAR]
+    with open(file_name, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            segments = jieba_seg_(_text=line)
+            result = gen_sub_pair(ori_sentence=line, segments=segments, generator=generator)
+            results.extend(result)
 
-    for count in range(5):
-        logging.debug(f"count={count}")
-        for index in range(len(text)):
-            logging.debug(f"要測的字={text}的{text[index]}")
-            for fuzzy_level in fuzzy_levels:
-                _start_time = time.perf_counter()
-                res = generator.generate_confused_char(text, index, fuzzy_level)
-                logging.debug(f"fuzzy_level={fuzzy_level}, res={res}")
-                _end_time = time.perf_counter()
-                execution_time = _end_time - _start_time
-                logging.debug(f"execution_time={execution_time} second")
+            if len(results) >= max_sentences_per_file:
+                save_to_file(results, input_file_prefix, file_count, output_directory)
+                file_count += 1
+                results = []
+
+    if results:
+        save_to_file(results, input_file_prefix, file_count, output_directory)
 
 
-if __name__ == '__main__':
-    _set_basic_logging_config()
-    _simple_test()
+def process_text(directory_path, max_sentences_per_file, output_directory):
+    file_names = [os.path.join(directory_path, f) for f in os.listdir(directory_path) if f.endswith('.txt')]
+
+    if not file_names:
+        print(f"No .txt files found in directory '{directory_path}'.")
+        return
+
+    for file_name in file_names:
+        generate_pair(file_name, max_sentences_per_file, output_directory)
+
+    print("All files processed successfully.")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Generate incorrect sentence pairs.")
+    parser.add_argument("--directory_path", type=str, required=True, help="Path to the input directory containing .txt files.")
+    parser.add_argument("--max_sentences_per_file", type=int, default=1000, help="Maximum number of sentences per output file.")
+    parser.add_argument("--output_directory", type=str, default='chinese_output_data', help="Path to the output directory.")
+
+    args = parser.parse_args()
+
+    start_time = time.time()
+    process_text(args.directory_path, args.max_sentences_per_file, args.output_directory)
+    end_time = time.time()
+
+    print(f"Execution time: {end_time - start_time} seconds")

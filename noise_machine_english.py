@@ -2,6 +2,7 @@ import os
 import random
 import re
 import argparse
+from datetime import datetime
 
 def apply_typo_rule(word):
     """
@@ -48,11 +49,23 @@ def count_lines(file_path):
         return 0
     with open(file_path, 'r', encoding='utf-8') as f:
         return sum(1 for _ in f)
+    
+def generate_output_filename(output_dir):
+    """
+    自動生成唯一的輸出檔案名稱
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return os.path.join(output_dir, f"output_{timestamp}.txt")
 
-def process_text(input_file, output_file, typo_probability, max_lines):
+def process_text(input_file, output_dir, typo_probability, max_lines):
     """
     處理文字並隨機應用拼寫錯誤，持續新增直到檔案達到指定行數
     """
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    output_file = generate_output_filename(output_dir)
+    
     while count_lines(output_file) < max_lines:
         with open(input_file, 'r', encoding='utf-8') as infile:
             lines = [line.strip() for line in infile if line.strip()]

@@ -7,12 +7,12 @@ from transformers import BertTokenizer, BertModel
 
 def load_model(model_path):
     """Load the pre-trained BERT model and tokenizer."""
-    tokenizer = BertTokenizer.from_pretrained('bert-base-multilingual-uncased')
-    bert_model = BertModel.from_pretrained("bert-base-multilingual-uncased")
+    tokenizer = BertTokenizer.from_pretrained('bert-base-multilingual-cased')
+    bert_model = BertModel.from_pretrained("bert-base-multilingual-cased")
     model = BertForSpellingCorrection(bert_model, tokenizer)
 
     # Load the saved model state dictionary
-    model_state_dict = torch.load(model_path)
+    model_state_dict = torch.load(model_path, weights_only=True)
     model.load_state_dict(model_state_dict, strict=True)
 
     # Ensure model is on the correct device
@@ -43,7 +43,7 @@ def correct_spelling(model, tokenizer, device, source_text):
     predicted_text = tokenizer.decode(predicted_ids, skip_special_tokens=True)
 
     # Remove spaces
-    predicted_text = predicted_text.replace(' ', '')
+    # predicted_text = predicted_text.replace(' ', '')
     return predicted_text
 
 
